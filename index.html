@@ -188,6 +188,45 @@
       font-family: var(--font-mono);
     }
 
+    .calendar-panel {
+      margin: 12px 16px 24px;
+    }
+    .calendar-head {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 8px;
+    }
+    .calendar-title {
+      font-size: 10px; font-family: var(--font-mono);
+      font-weight: 600; letter-spacing: 0.10em; text-transform: uppercase;
+      color: var(--muted);
+    }
+    .calendar-count {
+      font-family: var(--font-mono); font-size: 10px; color: var(--muted);
+    }
+    .calendar-list {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--r-card); overflow: hidden;
+    }
+    .cal-row {
+      display: grid; grid-template-columns: 48px 1fr auto;
+      gap: 10px; align-items: center;
+      padding: 10px 12px; border-top: 1px solid var(--border);
+    }
+    .cal-row:first-child { border-top: none; }
+    .cal-date {
+      display: grid; place-items: center;
+      min-height: 42px; border-radius: 8px;
+      background: color-mix(in oklch, var(--muted) 9%, transparent);
+      font-family: var(--font-mono); color: var(--muted);
+    }
+    .cal-day { font-size: 15px; font-weight: 700; line-height: 1; color: var(--fg); }
+    .cal-month { margin-top: 3px; font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; }
+    .cal-title { font-size: var(--fs-sm); font-weight: 600; line-height: 1.25; }
+    .cal-sub { margin-top: 2px; font-size: 11px; font-family: var(--font-mono); color: var(--muted); }
+    .cal-empty {
+      padding: 12px; font-size: var(--fs-sm); color: var(--muted);
+    }
+
     /* ── Status pills ──────────────────────────────────────────────────── */
     .pill {
       display: inline-flex; align-items: center;
@@ -211,12 +250,23 @@
     .d-head .chips .sep { opacity: 0.4; }
 
     .sec-label {
-      padding: 12px 16px 5px;
-      font-size: 10px; font-family: var(--font-mono);
-      font-weight: 600; letter-spacing: 0.10em; text-transform: uppercase;
-      color: var(--muted);
+      margin: 16px 16px 7px;
+      padding: 9px 11px 9px 12px;
+      border-left: 4px solid var(--accent);
+      border-radius: 8px;
+      background: #eef8f1;
+      box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--accent) 16%, transparent);
+      font-size: 12px; font-family: var(--font-ui);
+      font-weight: 700; letter-spacing: 0; text-transform: none;
+      color: var(--fg);
     }
-    .sec-body { border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+    .sec-body {
+      margin: 0 16px;
+      overflow: hidden;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--r-card);
+    }
 
     .data-row {
       display: flex; align-items: center;
@@ -521,6 +571,11 @@
           </div>
           <div class="form-group"><div class="form-label">Coste (€)</div><input id="nm-cost" class="form-input" type="text" inputmode="decimal" placeholder="0"></div>
           <div class="form-group"><div class="form-label">Notas (opcional)</div><textarea id="nm-notes" class="form-input" rows="3" placeholder="Observaciones, taller, marca de recambio…"></textarea></div>
+          <hr class="form-divider">
+          <div class="form-row-2">
+            <div class="form-group"><div class="form-label">Próxima fecha</div><input id="nm-next-date" class="form-input" type="date"></div>
+            <div class="form-group"><div class="form-label">Próximos km</div><input id="nm-next-km" class="form-input" type="text" inputmode="numeric" placeholder="Ej. 95000"></div>
+          </div>
         </div>
         <div class="form-btns">
           <button class="btn-primary" onclick="saveNewMaint()">Guardar mantenimiento</button>
@@ -667,6 +722,14 @@ function fmtDate(ds) {
   const [y, m, dia] = ds.split('-');
   return `${dia}/${m}/${String(y).slice(2)}`;
 }
+function fmtDay(ds) {
+  if (!ds) return { day: '—', month: '' };
+  const date = new Date(`${ds}T00:00:00`);
+  return {
+    day: String(date.getDate()).padStart(2, '0'),
+    month: date.toLocaleDateString('es-ES', { month: 'short' }).replace('.', '')
+  };
+}
 function fmtKm(n) {
   return n == null ? '—' : n.toLocaleString('es-ES') + ' km';
 }
@@ -686,18 +749,103 @@ function kmSt(left) {
 }
 function getV(id) { return vehicles.find(v => v.id === id); }
 
+function nextSummary(v, item) {
+  const parts = [];
+  if (item.date) {
+    const d = daysTo(item.date);
+    parts.push(d === null ? fmtDate(item.date) : d < 0 ? `Vencido desde ${fmtDate(item.date)}` : d === 0 ? 'Hoy' : `${fmtDate(item.date)} (${d} días)`);
+  }
+  if (item.km) {
+    const left = kmLeft(v, item.km);
+    parts.push(left <= 0 ? `Vencido por km` : `+${fmtKm(left)}`);
+  }
+  return parts.join(' · ') || 'Sin fecha ni km';
+}
+
+function getCalendarEvents() {
+  const events = [];
+  vehicles.forEach(v => {
+    [
+      ['ITV', v.itv],
+      ['Seguro', v.seguro],
+      ['Impuesto circulación', v.impuesto]
+    ].forEach(([label, date]) => {
+      if (!date) return;
+      const d = daysTo(date);
+      events.push({
+        date,
+        days: d,
+        status: dStatus(d),
+        title: label,
+        sub: vehicleTitle(v),
+        badge: d < 0 ? 'Vencido' : d === 0 ? 'Hoy' : `${d}d`
+      });
+    });
+    v.next.forEach(item => {
+      if (item.date) {
+        const d = daysTo(item.date);
+        events.push({
+          date: item.date,
+          days: d,
+          status: dStatus(d),
+          title: item.type || 'Mantenimiento',
+          sub: vehicleTitle(v),
+          badge: d < 0 ? 'Vencido' : d === 0 ? 'Hoy' : `${d}d`
+        });
+      } else if (item.km) {
+        const left = kmLeft(v, item.km);
+        events.push({
+          date: null,
+          days: 99999,
+          status: kmSt(left),
+          title: item.type || 'Mantenimiento',
+          sub: `${vehicleTitle(v)} · ${left <= 0 ? 'Vencido por km' : '+' + fmtKm(left)}`,
+          badge: 'km'
+        });
+      }
+    });
+  });
+  return events.sort((a, b) => a.days - b.days).slice(0, 8);
+}
+
+function renderCalendar() {
+  const events = getCalendarEvents();
+  const rows = events.map(event => {
+    const d = fmtDay(event.date);
+    return `<div class="cal-row">
+      <div class="cal-date"><div class="cal-day">${d.day}</div><div class="cal-month">${d.month || 'KM'}</div></div>
+      <div>
+        <div class="cal-title">${event.title}</div>
+        <div class="cal-sub">${event.sub}</div>
+      </div>
+      <span class="pill ${event.status}" style="font-size:10px;">${event.badge}</span>
+    </div>`;
+  }).join('') || `<div class="cal-empty">Sin fechas pendientes. Añade documentación o próximos mantenimientos para crear tu calendario.</div>`;
+
+  return `<div class="calendar-panel">
+    <div class="calendar-head">
+      <div class="calendar-title">Calendario</div>
+      <div class="calendar-count">${events.length ? `${events.length} próximos` : 'vacío'}</div>
+    </div>
+    <div class="calendar-list">${rows}</div>
+  </div>`;
+}
+
 // ── Render: List ──────────────────────────────────────────────────────────
 function renderList() {
   // Alert strip
   let urgent = 0;
   vehicles.forEach(v => {
     [v.itv, v.seguro, v.impuesto].forEach(d => { if (dStatus(daysTo(d)) === 'bad') urgent++; });
-    v.next.forEach(m => { if (m.km && kmSt(kmLeft(v, m.km)) === 'bad') urgent++; });
+    v.next.forEach(m => {
+      if (m.km && kmSt(kmLeft(v, m.km)) === 'bad') urgent++;
+      if (m.date && dStatus(daysTo(m.date)) === 'bad') urgent++;
+    });
   });
   document.getElementById('alertStrip').innerHTML = urgent
     ? `<div class="alert-strip"><svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>${urgent} elemento${urgent > 1 ? 's requieren' : ' requiere'} atención</div>` : '';
 
-  document.getElementById('vehicleList').innerHTML = vehicles.map(v => {
+  const vehicleCards = vehicles.map(v => {
     const id = daysTo(v.itv), sd = daysTo(v.seguro), imp = daysTo(v.impuesto);
     const nm = v.next.find(m => m.km != null);
     const kl = nm ? kmLeft(v, nm.km) : null;
@@ -726,6 +874,7 @@ function renderList() {
       </div>
     </div>`;
   }).join('');
+  document.getElementById('vehicleList').innerHTML = vehicleCards + renderCalendar();
 }
 
 // ── Render: Detail ────────────────────────────────────────────────────────
@@ -757,10 +906,10 @@ function renderDetail(id) {
     </div>`;
 
   const nextRows = v.next.map(m => {
-    const kl = kmLeft(v, m.km), st = kmSt(kl);
+    const kl = kmLeft(v, m.km), st = m.date ? dStatus(daysTo(m.date)) : kmSt(kl);
     return `<div class="maint-row">
-      <div class="ml"><div class="mt">${m.type}</div><div class="mm">${m.km ? 'Previsto en ' + fmtKm(m.km) : 'Ver fecha'}</div></div>
-      <div class="mr">${m.km !== null ? `<span class="pill ${st}" style="font-size:10px;">${kl > 0 ? '+' + fmtKm(kl) : 'Vencido'}</span>` : '<span class="pill dim" style="font-size:10px;">—</span>'}</div>
+      <div class="ml"><div class="mt">${m.type}</div><div class="mm">${nextSummary(v, m)}</div></div>
+      <div class="mr"><span class="pill ${st}" style="font-size:10px;">${m.date ? fmtDate(m.date) : m.km ? (kl > 0 ? '+' + fmtKm(kl) : 'Vencido') : '—'}</span></div>
     </div>`;
   }).join('') || `<div class="maint-row"><span style="font-size:var(--fs-sm);color:var(--muted);">Sin próximos registros</span></div>`;
 
@@ -774,9 +923,9 @@ function renderDetail(id) {
     </div>`).join('') || `<div class="maint-row"><span style="font-size:var(--fs-sm);color:var(--muted);">Sin historial</span></div>`;
 
   document.getElementById('detailMaint').innerHTML = `
-    <div class="sec-label" style="margin-top:6px;">Próximos mantenimientos</div>
+    <div class="sec-label">Próximos mantenimientos</div>
     <div class="sec-body">${nextRows}</div>
-    <div class="sec-label" style="margin-top:6px;">Historial</div>
+    <div class="sec-label">Historial</div>
     <div class="sec-body">${histRows}</div>`;
 
   document.getElementById('deleteMsg').textContent =
@@ -860,7 +1009,7 @@ function saveNewVehicle() {
 }
 
 function openAddMaint() {
-  ['nm-type','nm-km','nm-date','nm-cost','nm-notes'].forEach(id => document.getElementById(id).value = '');
+  ['nm-type','nm-km','nm-date','nm-cost','nm-notes','nm-next-date','nm-next-km'].forEach(id => document.getElementById(id).value = '');
   openOverlay('ovAddMaint');
 }
 
@@ -875,6 +1024,16 @@ function saveNewMaint() {
     cost: parseFloat(document.getElementById('nm-cost').value) || 0,
     notes: document.getElementById('nm-notes').value.trim()
   });
+  const nextDate = document.getElementById('nm-next-date').value;
+  const nextKm = parseInt(document.getElementById('nm-next-km').value) || null;
+  if (nextDate || nextKm) {
+    v.next.unshift({
+      type,
+      date: nextDate || null,
+      km: nextKm,
+      notes: 'Programado al registrar mantenimiento'
+    });
+  }
   persistVehicles();
   closeOverlay('ovAddMaint');
   renderDetail(activeId);

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mis-vehiculos-v5';
+const CACHE_NAME = 'mis-vehiculos-v8';
 const APP_SHELL = [
   './',
   './index.html',
